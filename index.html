@@ -1,0 +1,729 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>✦ Légendaires — Tracker de classeur</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; overflow: hidden; background: #0d0d0d; color: #ddd; font-family: 'Palatino Linotype', Palatino, 'Book Antiqua', serif; }
+
+  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar-track { background: #111; }
+  ::-webkit-scrollbar-thumb { background: #2a2a2a; border-radius: 3px; }
+
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+
+  #app { display: flex; height: 100vh; }
+
+  /* ── Import screen ── */
+  #import-screen {
+    flex: 1; display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    gap: 24px; padding: 32px;
+  }
+  #import-screen h1 { font-size: 22px; color: #c89b3c; letter-spacing: 1px; text-align: center; }
+  #import-screen p  { font-size: 12px; color: #555; text-align: center; margin-top: 4px; }
+  #drop-zone {
+    width: 100%; max-width: 460px; padding: 36px; border-radius: 12px;
+    border: 2px dashed #333; background: #111; cursor: pointer;
+    text-align: center; transition: all 0.2s;
+  }
+  #drop-zone:hover, #drop-zone.drag { border-color: #c89b3c; background: rgba(200,155,60,0.06); }
+  #drop-zone .icon { font-size: 28px; margin-bottom: 10px; }
+  #drop-zone .main { color: #ccc; font-size: 13px; margin-bottom: 6px; }
+  #drop-zone .sub  { color: #555; font-size: 11px; }
+  #drop-zone .err  { color: #e05555; font-size: 11px; margin-top: 12px; }
+  .spinner { width: 24px; height: 24px; border: 2px solid #333; border-top-color: #c89b3c; border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto 12px; }
+  .instructions { max-width: 460px; background: #111; border: 1px solid #222; border-radius: 10px; padding: 20px; width: 100%; }
+  .instructions h3 { font-size: 12px; color: #c89b3c; margin-bottom: 10px; }
+  .instructions ol { font-size: 11px; color: #777; line-height: 2; padding-left: 16px; }
+  .instructions code { font-family: monospace; color: #888; font-size: 10px; }
+
+  /* ── Main layout ── */
+  #sidebar {
+    width: 165px; flex-shrink: 0; background: #111;
+    border-right: 1px solid #222; display: flex; flex-direction: column; overflow: hidden;
+  }
+  #sidebar-header { padding: 14px 12px 10px; border-bottom: 1px solid #222; text-align: center; }
+  #sidebar-header .title { font-size: 13px; font-weight: bold; color: #c89b3c; letter-spacing: 1px; }
+  #sidebar-header .subtitle { font-size: 10px; color: #555; margin-top: 2px; }
+  #identity-list { flex: 1; overflow-y: auto; padding: 10px 6px; }
+  .group-label { font-size: 9px; color: #444; text-transform: uppercase; letter-spacing: 1px; padding: 0 4px 4px; font-family: monospace; }
+  .identity-group { margin-bottom: 10px; }
+  .identity-btn {
+    display: flex; align-items: center; gap: 5px;
+    width: 100%; padding: 5px 8px; margin-bottom: 2px;
+    background: transparent; border: 1px solid transparent;
+    border-radius: 5px; cursor: pointer; color: #999; font-size: 11px;
+    position: relative; overflow: hidden; transition: all 0.15s;
+    font-family: inherit; text-align: left;
+  }
+  .identity-btn:hover { color: #bbb; background: rgba(255,255,255,0.03); }
+  .identity-btn.active { background: rgba(200,155,60,0.15); border-color: #c89b3c; color: #c89b3c; }
+  .identity-btn .pips { display: flex; gap: 2px; flex-shrink: 0; }
+  .identity-btn .name { flex: 1; padding-left: 2px; }
+  .identity-btn .count { font-size: 9px; }
+  .identity-btn .progress-fill { position: absolute; left: 0; top: 0; bottom: 0; background: rgba(200,155,60,0.07); pointer-events: none; transition: width 0.3s; }
+  #sidebar-actions { padding: 10px 8px; border-top: 1px solid #222; display: flex; flex-direction: column; gap: 5px; }
+  .action-btn {
+    padding: 6px 8px; border-radius: 5px; font-size: 10px;
+    cursor: pointer; font-family: inherit; transition: all 0.15s; letter-spacing: 0.3px;
+  }
+  .action-btn.primary { background: rgba(200,155,60,0.12); border: 1px solid #c89b3c; color: #c89b3c; }
+  .action-btn.secondary { background: transparent; border: 1px solid #333; color: #888; }
+  .action-btn.danger { background: transparent; border: 1px solid #2a2020; color: #665544; }
+  .action-btn:hover { opacity: 0.8; }
+
+  /* ── Main content ── */
+  #main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+  #main-header {
+    padding: 10px 18px; background: #111; border-bottom: 1px solid #222;
+    display: flex; align-items: center; gap: 12px; flex-shrink: 0;
+  }
+  #main-header .identity-name { font-size: 15px; font-weight: bold; color: #c89b3c; }
+  .divider { width: 1px; height: 18px; background: #333; }
+  #main-header .count-label { font-size: 11px; color: #777; }
+  #progress-bar-wrap { display: flex; align-items: center; gap: 7px; flex: 1; max-width: 200px; }
+  #progress-bar-bg { flex: 1; height: 4px; background: #1e1e1e; border-radius: 2px; overflow: hidden; }
+  #progress-bar-fill { height: 100%; background: #c89b3c; transition: width 0.3s; }
+  #progress-pct { font-size: 9px; color: #555; flex-shrink: 0; }
+
+  /* ── Binder ── */
+  #binder { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+  #page-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 8px 20px; border-bottom: 1px solid #1a1a1a; flex-shrink: 0;
+  }
+  .nav-btn {
+    width: 34px; height: 34px; border-radius: 6px; border: 1px solid #2a2a2a;
+    background: #1a1a1a; color: #888; cursor: pointer; font-size: 18px;
+    display: flex; align-items: center; justify-content: center;
+    transition: all 0.15s; font-family: inherit; line-height: 1;
+  }
+  .nav-btn:disabled { background: transparent; color: #2a2a2a; cursor: default; }
+  .nav-btn:not(:disabled):hover { border-color: #c89b3c; color: #c89b3c; }
+  #page-info { text-align: center; }
+  #page-label { font-size: 13px; color: #c89b3c; font-weight: bold; letter-spacing: 1px; }
+  #page-sub   { font-size: 10px; color: #444; margin-top: 2px; }
+  #grid-wrap {
+    flex: 1; display: flex; align-items: center; justify-content: center;
+    padding: 16px 20px; overflow: hidden;
+  }
+  #card-grid {
+    display: grid; grid-template-columns: repeat(3, 1fr);
+    grid-template-rows: repeat(3, 1fr); gap: 10px;
+    width: 100%; height: 100%; max-width: 520px; max-height: 680px;
+  }
+  .card-slot {
+    border-radius: 8px; border: 2px solid transparent;
+    background: #111; position: relative; cursor: pointer;
+    transition: all 0.15s ease; overflow: hidden;
+    aspect-ratio: 2.5 / 3.5;
+  }
+  .card-slot.empty { background: #0f0f0f; border: 1px dashed #1e1e1e; cursor: default; }
+  .card-slot:not(.empty):hover { transform: translateY(-2px) scale(1.015); }
+  .card-slot.owned { border-color: #c89b3c; box-shadow: 0 0 16px rgba(200,155,60,0.4); }
+  .card-slot:not(.empty):not(.owned):hover { box-shadow: 0 0 10px rgba(200,155,60,0.1); }
+  .card-slot img {
+    width: 100%; height: 100%; object-fit: cover;
+    border-radius: 6px; display: block; transition: filter 0.15s;
+  }
+  .card-slot:not(.owned) img { filter: grayscale(80%) brightness(0.4); }
+  .card-slot .slot-num {
+    position: absolute; top: 5px; left: 6px;
+    font-size: 9px; font-family: monospace; font-weight: bold;
+    color: rgba(255,255,255,0.15); pointer-events: none;
+  }
+  .card-slot.owned .slot-num { color: rgba(200,155,60,0.7); }
+  .card-slot .checkmark {
+    position: absolute; top: 5px; right: 6px;
+    background: #c89b3c; color: #1a1008; border-radius: 50%;
+    width: 18px; height: 18px; display: flex; align-items: center;
+    justify-content: center; font-size: 10px; font-weight: bold;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.6); pointer-events: none;
+  }
+  .card-slot .no-img {
+    width: 100%; height: 100%; display: flex; align-items: center;
+    justify-content: center; font-size: 10px; color: #555;
+    padding: 8px; text-align: center;
+  }
+  /* Tooltip */
+  .tooltip {
+    position: absolute; bottom: calc(100% + 5px); left: 50%;
+    transform: translateX(-50%); background: #1c1c1c;
+    border: 1px solid #c89b3c; color: #eee; font-size: 10px;
+    padding: 3px 8px; border-radius: 4px; white-space: nowrap;
+    pointer-events: none; z-index: 50; box-shadow: 0 2px 8px rgba(0,0,0,0.8);
+    display: none;
+  }
+  .card-slot:hover .tooltip { display: block; }
+
+  /* Dots */
+  #page-dots { display: flex; gap: 5px; justify-content: center; padding: 0 20px 14px; flex-wrap: wrap; flex-shrink: 0; }
+  .page-dot {
+    width: 8px; height: 8px; border-radius: 50%; border: none;
+    background: #2a2a2a; cursor: pointer; transition: background 0.15s;
+  }
+  .page-dot.active { background: #c89b3c; }
+
+  /* Sub-tabs (identity tabs inside special categories) */
+  #sub-tabs {
+    display: flex; flex-wrap: wrap; gap: 4px;
+    padding: 8px 18px; border-bottom: 1px solid #1a1a1a; flex-shrink: 0;
+    background: #0f0f0f;
+  }
+  .sub-tab {
+    display: flex; align-items: center; gap: 3px;
+    padding: 4px 8px; border-radius: 5px; cursor: pointer;
+    border: 1px solid #252525; background: #151515;
+    font-family: inherit; transition: all 0.15s;
+  }
+  .sub-tab:hover { border-color: #444; }
+  .sub-tab.active { border-color: #c89b3c; background: rgba(200,155,60,0.12); }
+  #main { position: relative; }
+  #sri-inp { flex:1; background:#1a1a1a; border:1px solid #c89b3c; border-radius:6px; color:#ddd; font-size:13px; padding:7px 12px; font-family:inherit; outline:none; }
+  .sri { display:flex; align-items:center; gap:12px; padding:7px 8px; border-radius:6px; margin-bottom:3px; cursor:pointer; border:1px solid transparent; transition:all 0.12s; }
+  .sri:hover { background:#161616; border-color:#2a2a2a; }
+  .sri.owned { border-color:rgba(200,155,60,0.3); background:rgba(200,155,60,0.05); }
+
+  /* Search view */
+  #search-view { flex:1; display:none; flex-direction:column; overflow:hidden; }
+  #search-view.active { display:flex; }
+  #search-bar { padding:10px 16px; border-bottom:1px solid #1a1a1a; flex-shrink:0; }
+  #search-input { width:100%; background:#1a1a1a; border:1px solid #c89b3c; border-radius:6px;
+    color:#ddd; font-size:13px; padding:8px 12px; font-family:inherit; outline:none; box-sizing:border-box; }
+  #search-list { flex:1; overflow-y:auto; padding:8px 14px; }
+  #search-none { color:#444; text-align:center; margin-top:40px; font-size:13px; }
+  .sri { display:flex; align-items:center; gap:12px; padding:7px 8px; border-radius:6px;
+    margin-bottom:3px; cursor:pointer; border:1px solid transparent; transition:background 0.1s; }
+  .sri:hover { background:#161616; border-color:#2a2a2a; }
+  .sri.owned { border-color:rgba(200,155,60,0.3); background:rgba(200,155,60,0.05); }
+  /* Search sidebar tab */
+  .search-tab { background:transparent; border:1px dashed #2a2a2a; border-radius:5px;
+    color:#666; font-size:11px; cursor:pointer; padding:5px 8px; width:100%;
+    font-family:inherit; text-align:left; margin-bottom:8px; transition:all 0.15s; display:flex; gap:6px; align-items:center; }
+  .search-tab:hover { border-color:#555; color:#999; }
+  .search-tab.active { border-color:#c89b3c; color:#c89b3c; background:rgba(200,155,60,0.1); }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<input type="file" id="db-file-input" accept=".json" style="display:none">
+<input type="file" id="col-file-input" accept=".json" style="display:none">
+
+<script>
+const ACCENT    = '#c89b3c';
+const PAGE_SIZE = 9;
+const LS_OWNED  = 'mtg_owned_v6';
+const LS_DB     = 'mtg_carddb_v6';
+
+const ALL_IDENTITIES = [
+  { id:'C',     label:'Incolore',   colors:[],                    group:0 },
+  { id:'W',     label:'Blanc',      colors:['W'],                 group:1 },
+  { id:'U',     label:'Bleu',       colors:['U'],                 group:1 },
+  { id:'B',     label:'Noir',       colors:['B'],                 group:1 },
+  { id:'R',     label:'Rouge',      colors:['R'],                 group:1 },
+  { id:'G',     label:'Vert',       colors:['G'],                 group:1 },
+  { id:'WU',    label:'Azorius',    colors:['W','U'],             group:2 },
+  { id:'WB',    label:'Orzhov',     colors:['W','B'],             group:2 },
+  { id:'WR',    label:'Boros',      colors:['W','R'],             group:2 },
+  { id:'WG',    label:'Selesnya',   colors:['W','G'],             group:2 },
+  { id:'UB',    label:'Dimir',      colors:['U','B'],             group:2 },
+  { id:'UR',    label:'Izzet',      colors:['U','R'],             group:2 },
+  { id:'UG',    label:'Simic',      colors:['U','G'],             group:2 },
+  { id:'BR',    label:'Rakdos',     colors:['B','R'],             group:2 },
+  { id:'BG',    label:'Golgari',    colors:['B','G'],             group:2 },
+  { id:'RG',    label:'Gruul',      colors:['R','G'],             group:2 },
+  { id:'WUB',   label:'Esper',      colors:['W','U','B'],         group:3 },
+  { id:'WUR',   label:'Jeskai',     colors:['W','U','R'],         group:3 },
+  { id:'WUG',   label:'Bant',       colors:['W','U','G'],         group:3 },
+  { id:'WBR',   label:'Mardu',      colors:['W','B','R'],         group:3 },
+  { id:'WBG',   label:'Abzan',      colors:['W','B','G'],         group:3 },
+  { id:'WRG',   label:'Naya',       colors:['W','R','G'],         group:3 },
+  { id:'UBR',   label:'Grixis',     colors:['U','B','R'],         group:3 },
+  { id:'UBG',   label:'Sultai',     colors:['U','B','G'],         group:3 },
+  { id:'URG',   label:'Temur',      colors:['U','R','G'],         group:3 },
+  { id:'BRG',   label:'Jund',       colors:['B','R','G'],         group:3 },
+  { id:'WUBR',  label:'sans Vert',  colors:['W','U','B','R'],     group:4 },
+  { id:'WUBG',  label:'sans Rouge', colors:['W','U','B','G'],     group:4 },
+  { id:'WURG',  label:'sans Noir',  colors:['W','U','R','G'],     group:4 },
+  { id:'WBRG',  label:'sans Bleu',  colors:['W','B','R','G'],     group:4 },
+  { id:'UBRG',  label:'sans Blanc', colors:['U','B','R','G'],     group:4 },
+  { id:'WUBRG', label:'5 Couleurs', colors:['W','U','B','R','G'], group:5 },
+];
+const GROUP_LABELS = ['Incolore','Mono','2 Couleurs','3 Couleurs','4 Couleurs','5 Couleurs'];
+const IDENTITY_ORDER = ALL_IDENTITIES.map(i => i.id);
+
+const SPECIAL_CATEGORIES = [
+  { id:'__PARTNER',      label:'Partner (libre)',       icon:'\u26ad' },
+  { id:'__PARTNER_WITH', label:'Partner with',          icon:'\u26ad', noSubTabs:true },
+  { id:'__FRIENDS',      label:'Friends forever & co.', icon:'\u26ad' },
+  { id:'__CHOOSE_BG',    label:'Choose a Background',   icon:'\u25c8' },
+  { id:'__BACKGROUND',   label:'Pass\u00e9s (Background)', icon:'\u25c8' },
+];
+const SPECIAL_IDS = new Set(SPECIAL_CATEGORIES.map(s => s.id));
+function isSpecial(cat) { return cat && SPECIAL_IDS.has(cat.id); }
+function findCategory(id) {
+  return ALL_IDENTITIES.find(i => i.id === id) || SPECIAL_CATEGORIES.find(i => i.id === id) || ALL_IDENTITIES[0];
+}
+
+// State
+let cardDB      = null;
+let owned       = new Set();
+let selected    = ALL_IDENTITIES[0];
+let currentPage = 0;
+let subIdentity = null;
+let currentView = 'binder'; // 'binder' | 'search'
+let searchQuery = '';
+
+// Scryfall helpers
+function ciKey(card) {
+  const ci = card.color_identity || [];
+  if (!ci.length) return 'C';
+  return [...ci].sort((a,b) => 'WUBRG'.indexOf(a) - 'WUBRG'.indexOf(b)).join('');
+}
+function isTargetCard(card) {
+  // For flip cards: check only the front face (card_faces[0])
+  // Bushi Tenderfoot → front is non-legendary → exclude
+  // Rune-Tail, Kitsune Ascendant → front IS legendary → keep
+  if (card.layout === 'flip') {
+    const frontType = card.card_faces?.[0]?.type_line ?? '';
+    if (!frontType.includes('Legendary')) return false;
+    return frontType.includes('Creature') || frontType.includes('Vehicle')
+      || frontType.includes('Station') || frontType.includes('Background')
+      || frontType.includes('Spacecraft');
+  }
+  // For transform/modal DFC, check only the front face type_line
+  const frontType = card.card_faces?.[0]?.type_line ?? card.type_line ?? '';
+  if (!frontType.includes('Legendary')) return false;
+  return frontType.includes('Creature') || frontType.includes('Vehicle')
+    || frontType.includes('Station') || frontType.includes('Background')
+    || frontType.includes('Spacecraft');
+}
+function isTournamentLegal(card) {
+  if (card.digital) return false;
+  if (card.border_color === 'gold') return false;
+  if (['planar','scheme','vanguard','token','emblem','dungeon'].includes(card.layout||'')) return false;
+  if ((card.set_type||'') === 'funny') return false;
+  if ((card.security_stamp||'') === 'acorn') return false;
+  // Exclude meld results: they have layout 'meld' and no mana cost of their own
+  // (the two pieces that meld have a mana cost; the result does not)
+  if (card.layout === 'meld' && (card.mana_cost === '' || card.mana_cost == null)) return false;
+  // Also catch via all_parts when present
+  if (card.all_parts?.some(p => p.component === 'meld_result' && p.id === card.id)) return false;
+  return true;
+}
+function isAnyFormatLegal(card) {
+  if (!card.legalities) return true;
+  return Object.values(card.legalities).some(v => v === 'legal' || v === 'restricted');
+}
+function specialType(card) {
+  const kw = (card.keywords||[]).map(k=>k.toLowerCase());
+  const ot = (card.oracle_text||'').toLowerCase();
+  const tl = card.type_line||'';
+  if (ot.includes('partner with '))       return '__PARTNER_WITH';
+  if (kw.includes('choose a background')) return '__CHOOSE_BG';
+  // Friends forever & variants including Partner—Anything (em dash = \u2014)
+  if (kw.includes('friends forever')
+   || ot.includes('friends forever')
+   || kw.includes("doctor's companion")
+   || ot.includes('partner\u2014'))       return '__FRIENDS';
+  if (kw.includes('partner'))             return '__PARTNER';
+  if (tl.includes('Background'))          return '__BACKGROUND';
+  return null;
+}
+function buildCardDB(rawCards) {
+  const map = {};
+  ALL_IDENTITIES.forEach(i => { map[i.id] = []; });
+  SPECIAL_CATEGORIES.forEach(s => { map[s.id] = []; });
+  const firstPrint = {}, firstImg = {}, anyImg = {}, cardMeta = {};
+  for (const card of rawCards) {
+    if (!isTargetCard(card) || !isTournamentLegal(card) || !isAnyFormatLegal(card)) continue;
+    const oid  = card.oracle_id;
+    const date = card.released_at || '9999';
+    const num  = parseInt(card.collector_number, 10) || 9999;
+    const img  = card.image_uris?.normal || card.card_faces?.[0]?.image_uris?.normal || null;
+    if (!cardMeta[oid]) cardMeta[oid] = { name:card.name, oracle_id:oid, color_identity:card.color_identity, type_line:card.type_line, keywords:card.keywords||[], oracle_text:card.oracle_text||'' };
+    const prev = firstPrint[oid];
+    const isEarlier = !prev || date < prev.date || (date === prev.date && num < prev.num);
+    if (isEarlier) { firstPrint[oid] = { date, num }; if (img) firstImg[oid] = img; }
+    if (img && !anyImg[oid]) anyImg[oid] = img;
+  }
+  for (const oid of Object.keys(cardMeta)) {
+    const meta = cardMeta[oid], print = firstPrint[oid];
+    if (!print) continue;
+    const entry = { name:meta.name, oracle_id:oid, released_at:print.date, collector_number:print.num, image_uri:firstImg[oid]||anyImg[oid]||null, ci_key:ciKey(meta) };
+    const sp = specialType(meta);
+    if (!sp) {
+      const tl = meta.type_line||'';
+      if (tl.includes('Creature')||tl.includes('Vehicle')||tl.includes('Station')||tl.includes('Spacecraft')) { const key=ciKey(meta); if(key in map) map[key].push({...entry}); }
+    }
+    if (sp && sp in map) map[sp].push({...entry});
+  }
+  const sortFn = (a,b) => a.released_at.localeCompare(b.released_at)||a.collector_number-b.collector_number;
+  for (const key of Object.keys(map)) map[key].sort(sortFn);
+  return map;
+}
+
+// Persistence
+function saveOwned() { try { localStorage.setItem(LS_OWNED, JSON.stringify([...owned])); } catch(e) {} }
+function saveDB()    { try { localStorage.setItem(LS_DB, JSON.stringify(cardDB)); } catch(e) { alert('localStorage plein.'); } }
+function loadFromStorage() {
+  try { const o=localStorage.getItem(LS_OWNED); if(o) owned=new Set(JSON.parse(o)); } catch(e) {}
+  try { const d=localStorage.getItem(LS_DB);    if(d) cardDB=JSON.parse(d); } catch(e) {}
+}
+function downloadJSON(data, filename) {
+  const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
+  const url=URL.createObjectURL(blob); const a=document.createElement('a');
+  a.href=url; a.download=filename; a.click(); URL.revokeObjectURL(url);
+}
+function pipsHtml(colors, size=14) {
+  if (!colors.length) return `<img src="https://svgs.scryfall.io/card-symbols/C.svg" width="${size}" height="${size}" alt="C">`;
+  return colors.map(c=>`<img src="https://svgs.scryfall.io/card-symbols/${c}.svg" width="${size}" height="${size}" alt="${c}">`).join('');
+}
+
+// Import screen
+function renderImportScreen() {
+  document.getElementById('app').innerHTML = `
+    <div id="import-screen">
+      <div style="text-align:center">
+        <div style="font-size:28px;margin-bottom:8px">\u2726</div>
+        <h1>L\u00c9GENDAIRES</h1>
+        <p>Tracker de classeur \u2014 toutes identit\u00e9s de couleur</p>
+      </div>
+      <div id="drop-zone">
+        <div id="drop-inner">
+          <div class="icon">\ud83d\udcc2</div>
+          <div class="main">Glisse le fichier JSON ici ou clique pour parcourir</div>
+          <div class="sub">Fichier <strong>Default Cards</strong> de Scryfall (~500 Mo)</div>
+        </div>
+      </div>
+      <div class="instructions">
+        <h3>O\u00f9 trouver le fichier</h3>
+        <ol>
+          <li>Va sur <code>scryfall.com/docs/api/bulk-data</code></li>
+          <li>T\u00e9l\u00e9charge <strong>Default Cards</strong></li>
+          <li>Importe le fichier ici</li>
+        </ol>
+        <p style="font-size:10px;color:#444;margin-top:10px">Le fichier est mis en cache \u2014 tu n'auras pas \u00e0 le r\u00e9importer \u00e0 chaque visite.</p>
+      </div>
+    </div>`;
+  const zone = document.getElementById('drop-zone');
+  zone.addEventListener('click', () => document.getElementById('db-file-input').click());
+  zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('drag'); });
+  zone.addEventListener('dragleave', () => zone.classList.remove('drag'));
+  zone.addEventListener('drop', e => { e.preventDefault(); zone.classList.remove('drag'); handleDBFile(e.dataTransfer.files[0]); });
+}
+function handleDBFile(file) {
+  if (!file) return;
+  const zone = document.getElementById('drop-zone');
+  if (zone) zone.innerHTML = '<div><div class="spinner"></div><div style="color:#777;font-size:13px">Analyse du fichier\u2026</div></div>';
+  const reader = new FileReader();
+  reader.onload = e => {
+    try {
+      const raw = JSON.parse(e.target.result);
+      const arr = Array.isArray(raw) ? raw : (raw.data ?? []);
+      if (!arr.length) throw new Error('Fichier vide ou format inattendu.');
+      cardDB = buildCardDB(arr); saveDB(); renderApp();
+    } catch(err) {
+      if (zone) zone.innerHTML = '<div class="icon">\ud83d\udcc2</div><div class="main">Glisse le fichier JSON ici ou clique pour parcourir</div><div class="sub">Fichier <strong>Default Cards</strong> de Scryfall (~500 Mo)</div><div class="err">\u26a0 '+err.message+'</div>';
+    }
+  };
+  reader.readAsText(file);
+}
+
+// Main render
+function renderApp() {
+  const _sidebarEl = document.getElementById('identity-list');
+  const _savedScroll = _sidebarEl ? _sidebarEl.scrollTop : 0;
+
+  const allCards = cardDB[selected.id] || [];
+  let filteredCards = allCards;
+  let subTabs = null;
+
+  if (isSpecial(selected)) {
+    if (selected.noSubTabs) {
+      subIdentity = null;
+    } else {
+      const presentKeys = [...new Set(allCards.map(c=>c.ci_key))].sort((a,b)=>IDENTITY_ORDER.indexOf(a)-IDENTITY_ORDER.indexOf(b));
+      if (!subIdentity || !presentKeys.includes(subIdentity)) subIdentity = presentKeys[0]||null;
+      filteredCards = subIdentity ? allCards.filter(c=>c.ci_key===subIdentity) : allCards;
+      subTabs = presentKeys;
+    }
+  } else {
+    subIdentity = null;
+  }
+
+  const totalPages = Math.max(1, Math.ceil(filteredCards.length/PAGE_SIZE));
+  if (currentPage >= totalPages) currentPage = 0;
+  const ownedTotal = owned.size;
+  const ownedHere  = filteredCards.filter(c=>owned.has(c.oracle_id)).length;
+
+  // Sidebar
+  let sidebarGroups = '';
+  for (let g=0; g<=5; g++) {
+    let btns = '';
+    for (const identity of ALL_IDENTITIES.filter(i=>i.group===g)) {
+      const idCards=cardDB[identity.id]||[], idOwned=idCards.filter(c=>owned.has(c.oracle_id)).length;
+      const pct=idCards.length>0?(idOwned/idCards.length*100).toFixed(1):0;
+      const active=currentView==='binder'&&identity.id===selected.id;
+      btns += `<button class="identity-btn ${active?'active':''}" data-id="${identity.id}">
+        <div class="progress-fill" style="width:${pct}%"></div>
+        <span class="pips">${pipsHtml(identity.colors,13)}</span>
+        <span class="name">${identity.label}</span>
+        ${idCards.length>0?`<span class="count">${idOwned}/${idCards.length}</span>`:''}
+      </button>`;
+    }
+    sidebarGroups += `<div class="identity-group"><div class="group-label">${GROUP_LABELS[g]}</div>${btns}</div>`;
+  }
+  let specialBtns = '';
+  for (const cat of SPECIAL_CATEGORIES) {
+    const catCards=cardDB[cat.id]||[], catOwned=catCards.filter(c=>owned.has(c.oracle_id)).length;
+    const pct=catCards.length>0?(catOwned/catCards.length*100).toFixed(1):0;
+    const active=currentView==='binder'&&cat.id===selected.id;
+    specialBtns += `<button class="identity-btn ${active?'active':''}" data-id="${cat.id}">
+      <div class="progress-fill" style="width:${pct}%"></div>
+      <span class="pips" style="font-size:12px;min-width:15px">${cat.icon}</span>
+      <span class="name">${cat.label}</span>
+      ${catCards.length>0?`<span class="count">${catOwned}/${catCards.length}</span>`:''}
+    </button>`;
+  }
+  sidebarGroups += `<div class="identity-group"><div class="group-label">Partenaires &amp; Pass\u00e9s</div>${specialBtns}</div>`;
+
+  // Sub-tabs
+  let subTabsHtml = '';
+  if (subTabs) {
+    subTabsHtml = '<div id="sub-tabs">';
+    for (const key of subTabs) {
+      const identity=findCategory(key), tabCards=allCards.filter(c=>c.ci_key===key);
+      const tabOwned=tabCards.filter(c=>owned.has(c.oracle_id)).length;
+      subTabsHtml += `<button class="sub-tab ${key===subIdentity?'active':''}" data-sub="${key}">
+        <span style="display:flex;gap:2px;align-items:center">${identity.colors!==undefined?pipsHtml(identity.colors,14):identity.id}</span>
+        <span style="font-size:9px;color:${key===subIdentity?ACCENT:'#555'};margin-left:3px">${tabOwned}/${tabCards.length}</span>
+      </button>`;
+    }
+    subTabsHtml += '</div>';
+  }
+
+  // Grid
+  const pageCards = Array.from({length:PAGE_SIZE},(_,i)=>{ const idx=currentPage*PAGE_SIZE+i; return idx<filteredCards.length?filteredCards[idx]:null; });
+  const pageOwned = pageCards.filter(c=>c&&owned.has(c.oracle_id)).length;
+  const pageTotal = pageCards.filter(Boolean).length;
+  let gridHtml = '';
+  for (let i=0; i<PAGE_SIZE; i++) {
+    const card=pageCards[i], slotNum=currentPage*PAGE_SIZE+i+1;
+    if (!card) { gridHtml+='<div class="card-slot empty"></div>'; continue; }
+    const isOwned=owned.has(card.oracle_id);
+    const imgHtml=card.image_uri?`<img src="${card.image_uri}" alt="${card.name.replace(/"/g,'&quot;')}" loading="lazy" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">`:'' ;
+    gridHtml += `<div class="card-slot ${isOwned?'owned':''}" data-oracle="${card.oracle_id}">
+      ${imgHtml}<div class="no-img" style="${card.image_uri?'display:none':''}">${card.name}</div>
+      <div class="slot-num">${slotNum}</div>
+      ${isOwned?'<div class="checkmark">\u2713</div>':''}
+      <div class="tooltip">${card.name}${!isOwned?' <span style="color:#555">\u2014 non poss\u00e9d\u00e9e</span>':''}</div>
+    </div>`;
+  }
+  let dotsHtml = '';
+  if (totalPages<=20) {
+    dotsHtml='<div id="page-dots">';
+    for (let i=0;i<totalPages;i++) dotsHtml+=`<button class="page-dot ${i===currentPage?'active':''}" data-page="${i}"></button>`;
+    dotsHtml+='</div>';
+  }
+  const progressPct = filteredCards.length>0?Math.round(ownedHere/filteredCards.length*100):0;
+
+  document.getElementById('app').innerHTML = `
+    <div id="sidebar">
+      <div id="sidebar-header">
+        <div class="title">\u2726 L\u00c9GENDAIRES</div>
+        <div class="subtitle">${ownedTotal} poss\u00e9d\u00e9e${ownedTotal!==1?'s':''}</div>
+      </div>
+      <div id="identity-list">
+        <div style="padding:0 6px 8px;border-bottom:1px solid #1e1e1e;margin-bottom:8px">
+          <button class="search-tab ${currentView==='search'?'active':''}" id="btn-goto-search">
+            &#128269; Recherche
+          </button>
+        </div>
+        ${sidebarGroups}
+      </div>
+      <div id="sidebar-actions">
+        <button class="action-btn primary" id="btn-export">\u2193 Exporter collection</button>
+        <button class="action-btn secondary" id="btn-import-col">\u2191 Importer collection</button>
+        <button class="action-btn danger" id="btn-reset-db">\u21ba Changer base de donn\u00e9es</button>
+      </div>
+    </div>
+    <div id="main">
+      <div id="main-header">
+        <span style="display:flex;align-items:center;gap:6px">
+          ${selected.colors!==undefined?pipsHtml(selected.colors,20):`<span style="font-size:16px">${selected.icon}</span>`}
+          <span class="identity-name">${currentView==='search'?'Recherche':selected.label}</span>
+        </span>
+        <div class="divider"></div>
+        <span class="count-label">${currentView==='search'?'':ownedHere+' / '+filteredCards.length+' poss\u00e9d\u00e9e'+(ownedHere!==1?'s':'')}</span>
+        ${currentView==='binder'&&filteredCards.length>0?`
+        <div id="progress-bar-wrap">
+          <div id="progress-bar-bg"><div id="progress-bar-fill" style="width:${progressPct}%"></div></div>
+          <span id="progress-pct">${progressPct}%</span>
+        </div>`:''}
+      </div>
+      ${subTabsHtml}
+      <div id="binder" style="display:${currentView==='search'?'none':'flex'};flex-direction:column;flex:1;overflow:hidden">
+        <div id="page-header">
+          <button class="nav-btn" id="btn-prev" ${currentPage===0?'disabled':''}>&#8249;</button>
+          <div id="page-info">
+            <div id="page-label">Page ${currentPage+1} / ${totalPages}</div>
+            <div id="page-sub">${pageOwned}/${pageTotal} sur cette page &middot; cartes ${currentPage*PAGE_SIZE+1}&ndash;${Math.min((currentPage+1)*PAGE_SIZE,filteredCards.length)}</div>
+          </div>
+          <button class="nav-btn" id="btn-next" ${currentPage>=totalPages-1?'disabled':''}>&#8250;</button>
+        </div>
+        <div id="grid-wrap"><div id="card-grid">${gridHtml}</div></div>
+        ${dotsHtml}
+      </div>
+      <div id="search-view" class="${currentView==='search'?'active':''}">
+        <div id="search-bar">
+          <input id="search-input" type="text" placeholder="Chercher une carte par nom\u2026" autocomplete="off">
+        </div>
+        <div id="search-list"><div id="search-none">Tape au moins 2 lettres\u2026</div></div>
+      </div>
+    </div>`;
+
+  bindEvents();
+
+  requestAnimationFrame(() => {
+    const _ns = document.getElementById('identity-list');
+    if (_ns) _ns.scrollTop = _savedScroll;
+    if (currentView === 'search') {
+      const inp = document.getElementById('search-input');
+      if (inp) { inp.value = searchQuery; inp.focus(); if (searchQuery) renderSearchResults(); }
+      inp?.addEventListener('input', e => { searchQuery=e.target.value; renderSearchResults(); });
+    }
+  });
+}
+
+function bindEvents() {
+  document.querySelectorAll('.identity-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      selected = findCategory(btn.dataset.id);
+      subIdentity = null; currentPage = 0; currentView = 'binder';
+      renderApp();
+    });
+  });
+  document.querySelectorAll('.sub-tab').forEach(tab => {
+    tab.addEventListener('click', () => { subIdentity=tab.dataset.sub; currentPage=0; renderApp(); });
+  });
+  document.querySelectorAll('.card-slot:not(.empty)').forEach(slot => {
+    slot.addEventListener('click', () => {
+      const id=slot.dataset.oracle;
+      if(owned.has(id))owned.delete(id);else owned.add(id);
+      saveOwned(); renderApp();
+    });
+  });
+  document.getElementById('btn-prev')?.addEventListener('click', ()=>{ currentPage--; renderApp(); });
+  document.getElementById('btn-next')?.addEventListener('click', ()=>{ currentPage++; renderApp(); });
+  document.querySelectorAll('.page-dot').forEach(dot=>{
+    dot.addEventListener('click',()=>{ currentPage=parseInt(dot.dataset.page); renderApp(); });
+  });
+  document.getElementById('btn-goto-search')?.addEventListener('click', ()=>{ currentView='search'; renderApp(); });
+  document.getElementById('btn-export')?.addEventListener('click',()=>{ downloadJSON({version:1,owned:[...owned]},'mtg_collection.json'); });
+  document.getElementById('btn-import-col')?.addEventListener('click',()=>{ document.getElementById('col-file-input').click(); });
+  document.getElementById('btn-reset-db')?.addEventListener('click',()=>{
+    if(!confirm('Supprimer la base de donn\u00e9es ? Tes cartes poss\u00e9d\u00e9es sont conserv\u00e9es.')) return;
+    localStorage.removeItem(LS_DB); cardDB=null; renderImportScreen();
+  });
+}
+
+// Search
+function renderSearchResults() {
+  const list = document.getElementById('search-list');
+  if (!list) return;
+  const seen=new Set(), all=[];
+  for (const key of Object.keys(cardDB||{}))
+    for (const card of cardDB[key])
+      if (!seen.has(card.oracle_id)) { seen.add(card.oracle_id); all.push(card); }
+  all.sort((a,b)=>a.name.localeCompare(b.name));
+  const q = searchQuery.trim().toLowerCase();
+  if (q.length < 2) { list.innerHTML='<div id="search-none">Tape au moins 2 lettres\u2026</div>'; return; }
+  const results = all.filter(c=>c.name.toLowerCase().includes(q)).slice(0,100);
+  if (!results.length) { list.innerHTML='<div id="search-none">Aucune carte trouv\u00e9e</div>'; return; }
+
+  // Build position index: oracle_id -> { bucketId, page }
+  const posIndex = {};
+  for (const key of Object.keys(cardDB)) {
+    cardDB[key].forEach((card, idx) => {
+      if (!posIndex[card.oracle_id]) {
+        const cat = findCategory(key);
+        const label = cat.label || key;
+        posIndex[card.oracle_id] = { label, page: Math.floor(idx / PAGE_SIZE) + 1 };
+      }
+    });
+  }
+
+  let html='';
+  for (const card of results) {
+    const o=owned.has(card.oracle_id);
+    const pos = posIndex[card.oracle_id];
+    const thumb=card.image_uri
+      ?'<img src="'+card.image_uri+'" loading="lazy" style="width:36px;height:50px;border-radius:4px;object-fit:cover;flex-shrink:0">'
+      :'<div style="width:36px;height:50px;border-radius:4px;background:#1a1a1a;flex-shrink:0"></div>';
+    html+='<div class="sri '+(o?'owned':'')+'" data-oracle="'+card.oracle_id+'">'
+      +thumb+'<div style="flex:1;min-width:0">'
+      +'<div style="font-size:13px;color:#ccc;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+card.name+'</div>'
+      +'<div style="font-size:10px;color:#555;margin-top:2px">'
+      +card.released_at
+      +(pos?' &nbsp;·&nbsp; <span style="color:#666">'+pos.label+'</span> <span style="color:#c89b3c;font-weight:bold">p.'+pos.page+'</span>':'')
+      +'</div></div>'
+      +'<span style="font-size:10px;padding:2px 8px;border-radius:10px;font-weight:bold;flex-shrink:0;background:'+(o?'rgba(200,155,60,0.2)':'#1a1a1a')+';color:'+(o?'#c89b3c':'#444')+';border:1px solid '+(o?'rgba(200,155,60,0.4)':'#2a2a2a')+'">'+(o?'\u2713 Poss\u00e9d\u00e9e':'Manquante')+'</span></div>';
+  }
+  list.innerHTML=html;
+  list.querySelectorAll('.sri').forEach(item=>{
+    item.addEventListener('click',()=>{
+      const id=item.dataset.oracle;
+      if(owned.has(id))owned.delete(id);else owned.add(id);
+      saveOwned(); renderSearchResults();
+    });
+  });
+}
+
+// File inputs
+document.getElementById('db-file-input').addEventListener('change',e=>{ handleDBFile(e.target.files[0]); e.target.value=''; });
+document.getElementById('col-file-input').addEventListener('change',e=>{
+  const file=e.target.files[0]; if(!file)return;
+  const reader=new FileReader();
+  reader.onload=ev=>{
+    try { const data=JSON.parse(ev.target.result); const ids=data.owned??data; owned=new Set(Array.isArray(ids)?ids:[]); saveOwned(); renderApp(); }
+    catch(err){ alert('Fichier invalide : '+err.message); }
+  };
+  reader.readAsText(file); e.target.value='';
+});
+
+// Keyboard
+document.addEventListener('keydown',e=>{
+  if (!cardDB || currentView==='search') return;
+  const fc=(isSpecial(selected)&&subIdentity)?((cardDB[selected.id]||[]).filter(c=>c.ci_key===subIdentity)):(cardDB[selected.id]||[]);
+  const tp=Math.max(1,Math.ceil(fc.length/PAGE_SIZE));
+  if(e.key==='ArrowLeft'&&currentPage>0){currentPage--;renderApp();}
+  if(e.key==='ArrowRight'&&currentPage<tp-1){currentPage++;renderApp();}
+});
+
+// Boot
+loadFromStorage();
+if (cardDB) {
+  renderApp();
+} else {
+  // Try to auto-load legendaries.json from the same directory
+  fetch('legendaries.json')
+    .then(r => { if (!r.ok) throw new Error('not found'); return r.json(); })
+    .then(arr => {
+      if (!Array.isArray(arr) || !arr.length) throw new Error('empty');
+      cardDB = buildCardDB(arr);
+      saveDB();
+      renderApp();
+    })
+    .catch(() => {
+      // No legendaries.json found — fall back to manual import
+      renderImportScreen();
+    });
+}
+</script>
+</body>
+</html>
