@@ -234,6 +234,7 @@
 <div id="app"></div>
 <input type="file" id="db-file-input" accept=".json" style="display:none">
 <input type="file" id="col-file-input" accept=".json" style="display:none">
+<input type="file" id="col-file-input-mob" accept=".json" style="display:none">
 
 <script>
 const ACCENT    = '#c89b3c';
@@ -716,6 +717,16 @@ function renderSearchResults() {
 
 // File inputs
 document.getElementById('db-file-input').addEventListener('change',e=>{ handleDBFile(e.target.files[0]); e.target.value=''; });
+document.getElementById('col-file-input-mob')?.addEventListener('change',e=>{
+  const file=e.target.files[0]; if(!file)return;
+  const reader=new FileReader();
+  reader.onload=ev=>{
+    try { const data=JSON.parse(ev.target.result); const ids=data.owned??data; owned=new Set(Array.isArray(ids)?ids:[]); saveOwned(); renderApp(); }
+    catch(err){ alert('Fichier invalide : '+err.message); }
+  };
+  reader.readAsText(file); e.target.value='';
+});
+
 document.getElementById('col-file-input').addEventListener('change',e=>{
   const file=e.target.files[0]; if(!file)return;
   const reader=new FileReader();
@@ -757,7 +768,7 @@ if (cardDB) {
 </script>
 <div id="mobile-actions">
   <button class="mob-btn primary" id="mob-export">↓ Exporter</button>
-  <button class="mob-btn" id="mob-import">↑ Importer</button>
+  <label for="col-file-input-mob" class="mob-btn" style="display:flex;align-items:center;justify-content:center;cursor:pointer">↑ Importer</label>
   <button class="mob-btn danger" id="mob-reset">↺ Base</button>
 </div>
 
