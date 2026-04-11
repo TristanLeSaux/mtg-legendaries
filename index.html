@@ -206,6 +206,28 @@
     font-family:inherit; text-align:left; margin-bottom:8px; transition:all 0.15s; display:flex; gap:6px; align-items:center; }
   .search-tab:hover { border-color:#555; color:#999; }
   .search-tab.active { border-color:#c89b3c; color:#c89b3c; background:rgba(200,155,60,0.1); }
+  /* Mobile action bar */
+  #mobile-actions {
+    display: none;
+    position: fixed; bottom: 0; left: 0; right: 0;
+    background: #111; border-top: 1px solid #2a2a2a;
+    padding: 8px 12px; gap: 8px; z-index: 500;
+    safe-area-inset-bottom: env(safe-area-inset-bottom);
+  }
+  @media (max-width: 600px) {
+    #mobile-actions { display: flex; }
+    #sidebar-actions { display: none; }
+    #main { padding-bottom: 56px; }
+  }
+  .mob-btn {
+    flex: 1; padding: 8px 4px; border-radius: 6px; font-size: 10px;
+    cursor: pointer; font-family: inherit; text-align: center;
+    border: 1px solid #333; background: transparent; color: #888;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .mob-btn.primary { border-color: #c89b3c; color: #c89b3c; background: rgba(200,155,60,0.1); }
+  .mob-btn.danger  { border-color: #2a2020; color: #665544; }
+
 </style>
 </head>
 <body>
@@ -626,6 +648,14 @@ function bindEvents() {
   document.getElementById('btn-goto-search')?.addEventListener('click', ()=>{ currentView='search'; renderApp(); });
   document.getElementById('btn-export')?.addEventListener('click',()=>{ downloadJSON({version:1,owned:[...owned]},'mtg_collection.json'); });
   document.getElementById('btn-import-col')?.addEventListener('click',()=>{ document.getElementById('col-file-input').click(); });
+  // Mobile action bar
+  document.getElementById('mob-export')?.addEventListener('click',()=>{ downloadJSON({version:1,owned:[...owned]},'mtg_collection.json'); });
+  document.getElementById('mob-import')?.addEventListener('click',()=>{ document.getElementById('col-file-input').click(); });
+  document.getElementById('mob-reset')?.addEventListener('click',()=>{
+    if(!confirm('Supprimer la base de données ?')) return;
+    localStorage.removeItem(LS_DB); cardDB=null; renderImportScreen();
+  });
+
   document.getElementById('btn-reset-db')?.addEventListener('click',()=>{
     if(!confirm('Supprimer la base de donn\u00e9es ? Tes cartes poss\u00e9d\u00e9es sont conserv\u00e9es.')) return;
     localStorage.removeItem(LS_DB); cardDB=null; renderImportScreen();
@@ -725,5 +755,11 @@ if (cardDB) {
     });
 }
 </script>
+<div id="mobile-actions">
+  <button class="mob-btn primary" id="mob-export">↓ Exporter</button>
+  <button class="mob-btn" id="mob-import">↑ Importer</button>
+  <button class="mob-btn danger" id="mob-reset">↺ Base</button>
+</div>
+
 </body>
 </html>
