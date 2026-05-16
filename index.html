@@ -583,6 +583,18 @@ function renderApp() {
   const ownedTotal = owned.size;
   const ownedHere  = filteredCards.filter(c=>owned.has(c.oracle_id)).length;
 
+  // Split counts for sidebar
+  let creaPos=0, creaTotal=0, pwPos=0, pwTotal=0, tokPos=0, tokTotal=0;
+  for (const key of Object.keys(cardDB||{})) {
+    for (const c of cardDB[key]) { creaTotal++; if(owned.has(c.oracle_id)) creaPos++; }
+  }
+  for (const key of Object.keys(pwDB||{})) {
+    for (const pw of pwDB[key]) {
+      pwTotal++; if(owned.has(pw.oracle_id)) pwPos++;
+      for (const t of pw._tokens||[]) { tokTotal++; if(owned.has(t.oracle_id)) tokPos++; }
+    }
+  }
+
   // Sidebar
   let sidebarGroups = '';
   for (let g=0; g<=5; g++) {
@@ -658,7 +670,11 @@ function renderApp() {
     <div id="sidebar">
       <div id="sidebar-header">
         <div class="title">\u2726 L\u00c9GENDAIRES</div>
-        <div class="subtitle">${ownedTotal} poss\u00e9d\u00e9e${ownedTotal!==1?'s':''}</div>
+        <div class="subtitle" style="font-size:9px;line-height:1.7">
+          ✦ ${creaPos}/${creaTotal}
+          &nbsp;★ ${pwPos}/${pwTotal}
+          &nbsp;◆ ${tokPos}/${tokTotal}
+        </div>
       </div>
       <div id="identity-list">
         <div style="padding:0 6px 8px;border-bottom:1px solid #1e1e1e;margin-bottom:8px">
@@ -773,6 +789,16 @@ function renderPWView() {
 
   const ownedTotal = owned.size;
   const ownedHere  = flat.filter(c => owned.has(c.oracle_id)).length;
+  let pwCreaPos=0,pwCreaTotal=0,pwPWPos=0,pwPWTotal=0,pwTokPos=0,pwTokTotal=0;
+  for (const key of Object.keys(cardDB||{})) {
+    for (const c of cardDB[key]) { pwCreaTotal++; if(owned.has(c.oracle_id)) pwCreaPos++; }
+  }
+  for (const key of Object.keys(pwDB||{})) {
+    for (const pw of pwDB[key]) {
+      pwPWTotal++; if(owned.has(pw.oracle_id)) pwPWPos++;
+      for (const t of pw._tokens||[]) { pwTokTotal++; if(owned.has(t.oracle_id)) pwTokPos++; }
+    }
+  }
   const progressPct = flat.length > 0 ? Math.round(ownedHere / flat.length * 100) : 0;
 
   // Sidebar — identity buttons for PW
@@ -814,7 +840,7 @@ function renderPWView() {
       ? `<img src="${card.image_uri}" alt="${safeAlt}" loading="lazy" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">`
       : '';
     const badge = isTok
-      ? `<div class="token-badge">${tokType === 'emblem' ? '★ EMBLEM' : '◆ TOKEN'}</div>`
+      ? `<div class="token-badge">${tokType === 'emblem' ? '★ EMBLEM' : tokType === 'named' ? '▦ NAMED' : '◆ TOKEN'}</div>`
       : '';
     gridHtml += `<div class="card-slot ${isOwned?'owned':''} ${isTok?'token-slot':''}" data-oracle="${card.oracle_id}">
       ${imgHtml}<div class="no-img" style="${card.image_uri?'display:none':''}">${card.name}</div>
@@ -837,7 +863,11 @@ function renderPWView() {
     <div id="sidebar">
       <div id="sidebar-header">
         <div class="title">✦ LÉGENDAIRES</div>
-        <div class="subtitle">${ownedTotal} possédée${ownedTotal!==1?'s':''}</div>
+        <div class="subtitle" style="font-size:9px;line-height:1.7">
+          ✦ ${pwCreaPos}/${pwCreaTotal}
+          &nbsp;★ ${pwPWPos}/${pwPWTotal}
+          &nbsp;◆ ${pwTokPos}/${pwTokTotal}
+        </div>
       </div>
       <div id="identity-list">
         <div style="padding:0 6px 8px;border-bottom:1px solid #1e1e1e;margin-bottom:8px;display:flex;flex-direction:column;gap:3px">
