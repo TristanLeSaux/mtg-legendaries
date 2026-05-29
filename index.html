@@ -1102,7 +1102,25 @@ document.getElementById('mob-export')?.addEventListener('click', () => {
 });
 document.getElementById('mob-missing')?.addEventListener('click', exportMissing);
 document.getElementById('mob-reset')?.addEventListener('click', () => {
-  if (!confirm('Supprimer la base de données ? Tes cartes possédées sont conservées.')) return;
+  // confirm() peut être bloqué sur mobile — on utilise un double-tap
+  const btn = document.getElementById('mob-reset');
+  if (btn.dataset.confirm !== '1') {
+    btn.dataset.confirm = '1';
+    btn.textContent = '⚠ Confirmer ?';
+    btn.style.borderColor = '#e05555';
+    btn.style.color = '#e05555';
+    setTimeout(() => {
+      btn.dataset.confirm = '0';
+      btn.textContent = '↺ Base';
+      btn.style.borderColor = '';
+      btn.style.color = '';
+    }, 3000);
+    return;
+  }
+  btn.dataset.confirm = '0';
+  btn.textContent = '↺ Base';
+  btn.style.borderColor = '';
+  btn.style.color = '';
   localStorage.removeItem(LS_DB); localStorage.removeItem(LS_DB+'_pw');
   cardDB = null; pwDB = null;
   renderImportScreen();
