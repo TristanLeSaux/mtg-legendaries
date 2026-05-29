@@ -227,19 +227,22 @@
     display: none;
     position: fixed; bottom: 0; left: 0; right: 0;
     background: #111; border-top: 1px solid #2a2a2a;
-    padding: 8px 12px; gap: 8px; z-index: 500;
-    safe-area-inset-bottom: env(safe-area-inset-bottom);
+    padding: 8px 12px;
+    padding-bottom: calc(8px + env(safe-area-inset-bottom));
+    gap: 8px; z-index: 500;
   }
   @media (max-width: 600px) {
     #mobile-actions { display: flex; }
     #sidebar-actions { display: none; }
-    #main { padding-bottom: 56px; }
+    #main { padding-bottom: 72px; }
   }
   .mob-btn {
-    flex: 1; padding: 8px 4px; border-radius: 6px; font-size: 10px;
+    flex: 1; padding: 10px 4px; border-radius: 6px; font-size: 11px;
     cursor: pointer; font-family: inherit; text-align: center;
-    border: 1px solid #333; background: transparent; color: #888;
+    border: 1px solid #333; background: #1a1a1a; color: #888;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    min-height: 44px; /* zone de tap minimum iOS */
+    -webkit-tap-highlight-color: rgba(200,155,60,0.2);
   }
   .mob-btn.primary { border-color: #c89b3c; color: #c89b3c; background: rgba(200,155,60,0.1); }
   .mob-btn.danger  { border-color: #2a2020; color: #665544; }
@@ -319,6 +322,7 @@ let currentView        = 'binder'; // 'binder' | 'pw' | 'search'
 let searchQuery        = '';
 let currentPWIdentity  = null; // selected identity in PW view
 let pwDB               = null; // { identity_key: [pw_entry, ...] }
+window._debugPWDB = () => pwDB;
 
 // Scryfall helpers
 function ciKey(card) {
@@ -362,6 +366,7 @@ function isAnyFormatLegal(card) {
   return Object.values(card.legalities).some(v => v === 'legal' || v === 'restricted');
 }
 function isLegendaryPlaneswalker(card) {
+  // Recto uniquement — DFC Créature/PW restent dans les créatures
   const ft = card.card_faces?.[0]?.type_line ?? card.type_line ?? '';
   return ft.includes('Legendary') && ft.includes('Planeswalker');
 }
@@ -373,15 +378,22 @@ function buildPWDB(rawCards) {
   const best = {}; // oracle_id -> { date, num, card }
 
   for (const card of rawCards) {
-    if (!isLegendaryPlaneswalker(card)) continue;
+    // Une carte PW dans le JSON a toujours un champ _tokens (même vide)
+    // Les créatures n'ont jamais ce champ
+    const isPW = isLegendaryPlaneswalker(card) || Array.isArray(card._tokens);
+    if (!isPW) continue;
     if (!isTournamentLegal(card) || !isAnyFormatLegal(card)) continue;
     const oid  = card.oracle_id;
     const date = card.released_at || '9999';
     const num  = parseInt(card.collector_number, 10) || 9999;
     const prev = best[oid];
-    if (!prev || date < prev.date || (date === prev.date && num < prev.num)) {
-      best[oid] = { date, num, card };
-    }
+    // Préférer la version avec _tokens (entrée PW) sur celle sans (entrée créature)
+    const hasTokens     = Array.isArray(card._tokens);
+    const prevHasTokens = prev && Array.isArray(prev.card._tokens);
+    const better = !prev
+      || (hasTokens && !prevHasTokens)
+      || (hasTokens === prevHasTokens && (date < prev.date || (date === prev.date && num < prev.num)));
+    if (better) best[oid] = { date, num, card };
   }
 
   for (const { date, num, card } of Object.values(best)) {
@@ -773,7 +785,7 @@ function bindEvents() {
   document.getElementById('btn-import-col')?.addEventListener('click',()=>{ document.getElementById('col-file-input').click(); });
   document.getElementById('btn-reset-db')?.addEventListener('click',()=>{
     if(!confirm('Supprimer la base de donn\u00e9es ? Tes cartes poss\u00e9d\u00e9es sont conserv\u00e9es.')) return;
-    localStorage.removeItem(LS_DB); cardDB=null; renderImportScreen();
+    localStorage.removeItem(LS_DB); localStorage.removeItem(LS_DB+'_pw'); cardDB=null; pwDB=null; renderImportScreen();
   });
 }
 
@@ -944,7 +956,7 @@ function renderPWView() {
   document.getElementById('btn-import-col')?.addEventListener('click', () => { document.getElementById('col-file-input').click(); });
   document.getElementById('btn-reset-db')?.addEventListener('click', () => {
     if (!confirm('Supprimer la base de données ?')) return;
-    localStorage.removeItem(LS_DB); cardDB=null; renderImportScreen();
+    localStorage.removeItem(LS_DB); localStorage.removeItem(LS_DB+'_pw'); cardDB=null; pwDB=null; renderImportScreen();
   });
 
   requestAnimationFrame(() => {
@@ -1091,8 +1103,8 @@ document.getElementById('mob-export')?.addEventListener('click', () => {
 document.getElementById('mob-missing')?.addEventListener('click', exportMissing);
 document.getElementById('mob-reset')?.addEventListener('click', () => {
   if (!confirm('Supprimer la base de données ? Tes cartes possédées sont conservées.')) return;
-  localStorage.removeItem(LS_DB);
-  cardDB = null;
+  localStorage.removeItem(LS_DB); localStorage.removeItem(LS_DB+'_pw');
+  cardDB = null; pwDB = null;
   renderImportScreen();
 });
 
