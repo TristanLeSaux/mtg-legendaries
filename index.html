@@ -252,6 +252,7 @@
 <body>
 <div id="app"></div>
 <input type="file" id="db-file-input" accept=".json" style="display:none">
+<input type="file" id="mob-db-file-input" accept=".json" style="display:none">
 <input type="file" id="col-file-input" accept=".json" style="display:none">
 <input type="file" id="col-file-input-mob" accept=".json" style="display:none">
 
@@ -1101,29 +1102,25 @@ document.getElementById('mob-export')?.addEventListener('click', () => {
   downloadJSON({ version:1, owned:[...owned] }, 'mtg_collection.json');
 });
 document.getElementById('mob-missing')?.addEventListener('click', exportMissing);
-document.getElementById('mob-reset')?.addEventListener('click', () => {
-  // confirm() peut être bloqué sur mobile — on utilise un double-tap
-  const btn = document.getElementById('mob-reset');
-  if (btn.dataset.confirm !== '1') {
-    btn.dataset.confirm = '1';
-    btn.textContent = '⚠ Confirmer ?';
-    btn.style.borderColor = '#e05555';
-    btn.style.color = '#e05555';
-    setTimeout(() => {
-      btn.dataset.confirm = '0';
-      btn.textContent = '↺ Base';
-      btn.style.borderColor = '';
-      btn.style.color = '';
-    }, 3000);
+// Reset DB immediately when label is tapped (before file picker opens)
+const _mobDbLabel = document.querySelector('label[for="mob-db-file-input"]');
+if (_mobDbLabel) {
+  ['touchstart', 'mousedown'].forEach(evt => {
+    _mobDbLabel.addEventListener(evt, () => {
+      localStorage.removeItem(LS_DB); localStorage.removeItem(LS_DB+'_pw');
+      cardDB = null; pwDB = null;
+    }, { passive: true });
+  });
+}
+
+document.getElementById('mob-db-file-input')?.addEventListener('change', e => {
+  const file = e.target.files[0];
+  if (!file) {
+    // No file chosen — reload from Git on next boot (localStorage already cleared)
     return;
   }
-  btn.dataset.confirm = '0';
-  btn.textContent = '↺ Base';
-  btn.style.borderColor = '';
-  btn.style.color = '';
-  localStorage.removeItem(LS_DB); localStorage.removeItem(LS_DB+'_pw');
-  cardDB = null; pwDB = null;
-  renderImportScreen();
+  handleDBFile(file);
+  e.target.value = '';
 });
 
 // Boot
@@ -1132,25 +1129,22 @@ if (cardDB) {
   renderApp();
 } else {
   // Try to auto-load legendaries.json from the same directory
-  fetch('legendaries.json')
+  fetch('legendaries.json?v=' + Date.now())
     .then(r => { if (!r.ok) throw new Error('not found'); return r.json(); })
     .then(arr => {
       if (!Array.isArray(arr) || !arr.length) throw new Error('empty');
-      cardDB = buildCardDB(arr); // also builds pwDB
+      cardDB = buildCardDB(arr);
       saveDB();
       renderApp();
     })
-    .catch(() => {
-      // No legendaries.json found — fall back to manual import
-      renderImportScreen();
-    });
+    .catch(() => renderImportScreen());
 }
 </script>
 <div id="mobile-actions">
   <button class="mob-btn primary" id="mob-export">↓ Exporter</button>
   <label for="col-file-input-mob" class="mob-btn" style="display:flex;align-items:center;justify-content:center;cursor:pointer">↑ Importer</label>
   <button class="mob-btn" id="mob-missing">↓ Manquantes</button>
-  <button class="mob-btn danger" id="mob-reset">↺ Base</button>
+  <label for="mob-db-file-input" class="mob-btn danger" style="display:flex;align-items:center;justify-content:center;cursor:pointer">↺ Base</label>
 </div>
 
 </body>
