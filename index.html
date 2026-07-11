@@ -222,6 +222,13 @@
     font-family:inherit; text-align:left; margin-bottom:8px; transition:all 0.15s; display:flex; gap:6px; align-items:center; }
   .search-tab:hover { border-color:#555; color:#999; }
   .search-tab.active { border-color:#c89b3c; color:#c89b3c; background:rgba(200,155,60,0.1); }
+  /* View tabs (Créatures / Planeswalkers / Terrains) */
+  .view-tab { background:transparent; border:1px dashed #2a2a2a; border-radius:5px;
+    color:#777; font-size:11px; cursor:pointer; padding:5px 8px; width:100%;
+    font-family:inherit; text-align:left; margin-bottom:3px; transition:all 0.15s;
+    display:flex; gap:6px; align-items:center; }
+  .view-tab:hover { border-color:#555; color:#aaa; }
+  .view-tab.active { border-style:solid; border-color:#c89b3c; color:#c89b3c; background:rgba(200,155,60,0.12); }
   /* Mobile action bar */
   #mobile-actions {
     display: none;
@@ -252,7 +259,6 @@
 <body>
 <div id="app"></div>
 <input type="file" id="db-file-input" accept=".json" style="display:none">
-<input type="file" id="mob-db-file-input" accept=".json" style="display:none">
 <input type="file" id="col-file-input" accept=".json" style="display:none">
 <input type="file" id="col-file-input-mob" accept=".json" style="display:none">
 
@@ -260,7 +266,8 @@
 const ACCENT    = '#c89b3c';
 const PAGE_SIZE = 9;
 const LS_OWNED  = 'mtg_owned_v6';
-const LS_DB     = 'mtg_carddb_v6';
+// v7 : format allégé + terrains — invalide les caches v6 pour forcer le re-fetch du nouveau legendaries.json
+const LS_DB     = 'mtg_carddb_v7';
 
 const ALL_IDENTITIES = [
   { id:'C',     label:'Incolore',   colors:[],                    group:0 },
@@ -323,6 +330,8 @@ let currentView        = 'binder'; // 'binder' | 'pw' | 'search'
 let searchQuery        = '';
 let currentPWIdentity  = null; // selected identity in PW view
 let pwDB               = null; // { identity_key: [pw_entry, ...] }
+let currentLandIdentity = null; // selected identity in Lands view
+let landsDB             = null; // { identity_key: [land_entry, ...] }
 window._debugPWDB = () => pwDB;
 
 // Scryfall helpers
@@ -355,11 +364,11 @@ function isTournamentLegal(card) {
   if (['planar','scheme','vanguard','token','emblem','dungeon'].includes(card.layout||'')) return false;
   if ((card.set_type||'') === 'funny') return false;
   if ((card.security_stamp||'') === 'acorn') return false;
-  // Exclude meld results: they have layout 'meld' and no mana cost of their own
-  // (the two pieces that meld have a mana cost; the result does not)
-  if (card.layout === 'meld' && (card.mana_cost === '' || card.mana_cost == null)) return false;
-  // Also catch via all_parts when present
+  // Exclude meld results — vérif précise via all_parts d'abord. L'heuristique
+  // mana_cost ne s'applique qu'en secours : les PIÈCES de meld sans coût
+  // (ex: Hanweir Battlements, un terrain) ne sont pas des résultats.
   if (card.all_parts?.some(p => p.component === 'meld_result' && p.id === card.id)) return false;
+  if (card.layout === 'meld' && !card.all_parts && (card.mana_cost === '' || card.mana_cost == null)) return false;
   return true;
 }
 function isAnyFormatLegal(card) {
@@ -430,6 +439,43 @@ function buildPWFlatArray(identityKey) {
   return flat;
 }
 
+// ── Terrains non-base ──
+function isNonbasicLandCard(card) {
+  // Recto uniquement — un recto non-terrain (MDFC sort//terrain) est exclu
+  const ft = card.card_faces?.[0]?.type_line ?? card.type_line ?? '';
+  return ft.includes('Land') && !ft.includes('Basic');
+}
+function buildLandsDB(rawCards) {
+  const map = {};
+  ALL_IDENTITIES.forEach(i => { map[i.id] = []; });
+  const firstPrint = {}, firstImg = {}, anyImg = {}, cardMeta = {};
+  for (const card of rawCards) {
+    if (Array.isArray(card._tokens)) continue;   // entrées planeswalker
+    if (isTargetCard(card)) continue;            // les terrains-créatures légendaires restent côté créatures
+    if (!isNonbasicLandCard(card)) continue;
+    if (!isTournamentLegal(card) || !isAnyFormatLegal(card)) continue;
+    const oid  = card.oracle_id;
+    const date = card.released_at || '9999';
+    const num  = parseInt(card.collector_number, 10) || 9999;
+    const img  = card.image_uris?.normal || card.card_faces?.[0]?.image_uris?.normal || null;
+    if (!cardMeta[oid]) cardMeta[oid] = { name:card.name, color_identity:card.color_identity };
+    const prev = firstPrint[oid];
+    const isEarlier = !prev || date < prev.date || (date === prev.date && num < prev.num);
+    if (isEarlier) { firstPrint[oid] = { date, num }; if (img) firstImg[oid] = img; }
+    if (img && !anyImg[oid]) anyImg[oid] = img;
+  }
+  for (const oid of Object.keys(cardMeta)) {
+    const meta = cardMeta[oid], print = firstPrint[oid];
+    if (!print) continue;
+    const key = ciKey(meta);
+    if (!(key in map)) continue;
+    map[key].push({ name:meta.name, oracle_id:oid, released_at:print.date, collector_number:print.num, image_uri:firstImg[oid]||anyImg[oid]||null, ci_key:key });
+  }
+  const sortFn = (a,b) => a.released_at.localeCompare(b.released_at) || a.collector_number - b.collector_number;
+  for (const key of Object.keys(map)) map[key].sort(sortFn);
+  return map;
+}
+
 function specialType(card) {
   const kw = (card.keywords||[]).map(k=>k.toLowerCase());
   const ot = (card.oracle_text||'').toLowerCase();
@@ -478,8 +524,9 @@ function buildCardDB(rawCards) {
   }
   const sortFn = (a,b) => a.released_at.localeCompare(b.released_at)||a.collector_number-b.collector_number;
   for (const key of Object.keys(map)) map[key].sort(sortFn);
-  // Also build pwDB as side effect
+  // Also build pwDB and landsDB as side effects
   pwDB = buildPWDB(rawCards);
+  landsDB = buildLandsDB(rawCards);
   return map;
 }
 
@@ -488,6 +535,7 @@ function saveOwned() { try { localStorage.setItem(LS_OWNED, JSON.stringify([...o
 function saveDB()    {
   try { localStorage.setItem(LS_DB, JSON.stringify(cardDB)); } catch(e) { alert('localStorage plein.'); }
   try { if(pwDB) localStorage.setItem(LS_DB+'_pw', JSON.stringify(pwDB)); } catch(e) {}
+  try { if(landsDB) localStorage.setItem(LS_DB+'_lands', JSON.stringify(landsDB)); } catch(e) {}
 }
 function loadFromStorage() {
   try { const o=localStorage.getItem(LS_OWNED); if(o) owned=new Set(JSON.parse(o)); } catch(e) {}
@@ -502,6 +550,13 @@ function loadFromStorage() {
     }
   } catch(e) {}
   try { const p=localStorage.getItem(LS_DB+'_pw'); if(p) pwDB=JSON.parse(p); } catch(e) {}
+  try { const l=localStorage.getItem(LS_DB+'_lands'); if(l) landsDB=JSON.parse(l); } catch(e) {}
+}
+// Reset commun : vide le cache et recharge — le boot re-fetch legendaries.json depuis le site
+function resetDB() {
+  if (!confirm('Recharger la base de données depuis le site ? Tes cartes possédées sont conservées.')) return;
+  localStorage.removeItem(LS_DB); localStorage.removeItem(LS_DB+'_pw'); localStorage.removeItem(LS_DB+'_lands');
+  location.reload();
 }
 function downloadJSON(data, filename) {
   const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
@@ -511,6 +566,44 @@ function downloadJSON(data, filename) {
 function pipsHtml(colors, size=14) {
   if (!colors.length) return `<img src="https://svgs.scryfall.io/card-symbols/C.svg" width="${size}" height="${size}" alt="C">`;
   return colors.map(c=>`<img src="https://svgs.scryfall.io/card-symbols/${c}.svg" width="${size}" height="${size}" alt="${c}">`).join('');
+}
+
+// Compteurs globaux (sidebar header) : créatures / PW / tokens / terrains
+function globalCounts() {
+  let creaPos=0, creaTotal=0, pwPos=0, pwTotal=0, tokPos=0, tokTotal=0, landPos=0, landTotal=0;
+  for (const key of Object.keys(cardDB||{}))
+    for (const c of cardDB[key]) { creaTotal++; if(owned.has(c.oracle_id)) creaPos++; }
+  for (const key of Object.keys(pwDB||{}))
+    for (const pw of pwDB[key]) {
+      pwTotal++; if(owned.has(pw.oracle_id)) pwPos++;
+      for (const t of pw._tokens||[]) { tokTotal++; if(owned.has(t.oracle_id)) tokPos++; }
+    }
+  for (const key of Object.keys(landsDB||{}))
+    for (const c of landsDB[key]) { landTotal++; if(owned.has(c.oracle_id)) landPos++; }
+  return { creaPos, creaTotal, pwPos, pwTotal, tokPos, tokTotal, landPos, landTotal };
+}
+function countsHtml() {
+  const g = globalCounts();
+  return `✦ ${g.creaPos}/${g.creaTotal}
+          &nbsp;★ ${g.pwPos}/${g.pwTotal}
+          &nbsp;◆ ${g.tokPos}/${g.tokTotal}
+          &nbsp;⛰ ${g.landPos}/${g.landTotal}`;
+}
+// Triple onglet Créatures / Planeswalkers / Terrains + Recherche (partagé entre toutes les vues)
+function viewTabsHtml() {
+  return `
+        <div style="padding:0 6px 8px;border-bottom:1px solid #1e1e1e;margin-bottom:8px">
+          <button class="search-tab ${currentView==='search'?'active':''}" id="btn-goto-search">&#128269; Recherche</button>
+          <button class="view-tab ${currentView==='binder'?'active':''}" data-view="binder">✦ Créatures</button>
+          <button class="view-tab ${currentView==='pw'?'active':''}" data-view="pw">★ Planeswalkers</button>
+          <button class="view-tab ${currentView==='lands'?'active':''}" data-view="lands">⛰ Terrains</button>
+        </div>`;
+}
+function bindViewTabs() {
+  document.getElementById('btn-goto-search')?.addEventListener('click', () => { currentView='search'; renderApp(); });
+  document.querySelectorAll('.view-tab').forEach(btn => btn.addEventListener('click', () => {
+    currentView = btn.dataset.view; currentPage = 0; renderApp();
+  }));
 }
 
 // Import screen
@@ -568,11 +661,8 @@ function renderApp() {
   const _sidebarEl = document.getElementById('identity-list');
   const _savedScroll = _sidebarEl ? _sidebarEl.scrollTop : 0;
 
-  // ── PW view ──
-  if (currentView === 'pw') {
-    if (!currentPWIdentity) currentPWIdentity = ALL_IDENTITIES[0];
-    return renderPWView();
-  }
+  // ── Vues alternatives (Planeswalkers / Terrains) ──
+  if (currentView === 'pw' || currentView === 'lands') return renderAltView();
 
   const allCards = cardDB[selected.id] || [];
   let filteredCards = allCards;
@@ -595,18 +685,6 @@ function renderApp() {
   if (currentPage >= totalPages) currentPage = 0;
   const ownedTotal = owned.size;
   const ownedHere  = filteredCards.filter(c=>owned.has(c.oracle_id)).length;
-
-  // Split counts for sidebar
-  let creaPos=0, creaTotal=0, pwPos=0, pwTotal=0, tokPos=0, tokTotal=0;
-  for (const key of Object.keys(cardDB||{})) {
-    for (const c of cardDB[key]) { creaTotal++; if(owned.has(c.oracle_id)) creaPos++; }
-  }
-  for (const key of Object.keys(pwDB||{})) {
-    for (const pw of pwDB[key]) {
-      pwTotal++; if(owned.has(pw.oracle_id)) pwPos++;
-      for (const t of pw._tokens||[]) { tokTotal++; if(owned.has(t.oracle_id)) tokPos++; }
-    }
-  }
 
   // Sidebar
   let sidebarGroups = '';
@@ -684,20 +762,11 @@ function renderApp() {
       <div id="sidebar-header">
         <div class="title">\u2726 L\u00c9GENDAIRES</div>
         <div class="subtitle" style="font-size:9px;line-height:1.7">
-          ✦ ${creaPos}/${creaTotal}
-          &nbsp;★ ${pwPos}/${pwTotal}
-          &nbsp;◆ ${tokPos}/${tokTotal}
+          ${countsHtml()}
         </div>
       </div>
       <div id="identity-list">
-        <div style="padding:0 6px 8px;border-bottom:1px solid #1e1e1e;margin-bottom:8px">
-          <button class="search-tab ${currentView==='search'?'active':''}" id="btn-goto-search">
-            &#128269; Recherche
-          </button>
-          <button class="pw-tab ${currentView==='pw'?'active':''}" id="btn-goto-pw">
-            ★ Planeswalkers
-          </button>
-        </div>
+        ${viewTabsHtml()}
         ${sidebarGroups}
       </div>
       <div id="sidebar-actions">
@@ -779,50 +848,41 @@ function bindEvents() {
   document.querySelectorAll('.page-dot').forEach(dot=>{
     dot.addEventListener('click',()=>{ currentPage=parseInt(dot.dataset.page); renderApp(); });
   });
-  document.getElementById('btn-goto-search')?.addEventListener('click', ()=>{ currentView='search'; renderApp(); });
-  document.getElementById('btn-goto-pw')?.addEventListener('click', ()=>{ currentView = currentView==='pw' ? 'binder' : 'pw'; renderApp(); });
+  bindViewTabs();
   document.getElementById('btn-export')?.addEventListener('click',()=>{ downloadJSON({version:1,owned:[...owned]},'mtg_collection.json'); });
   document.getElementById('btn-export-missing')?.addEventListener('click', exportMissing);
   document.getElementById('btn-import-col')?.addEventListener('click',()=>{ document.getElementById('col-file-input').click(); });
-  document.getElementById('btn-reset-db')?.addEventListener('click',()=>{
-    if(!confirm('Supprimer la base de donn\u00e9es ? Tes cartes poss\u00e9d\u00e9es sont conserv\u00e9es.')) return;
-    localStorage.removeItem(LS_DB); localStorage.removeItem(LS_DB+'_pw'); cardDB=null; pwDB=null; renderImportScreen();
-  });
+  document.getElementById('btn-reset-db')?.addEventListener('click', resetDB);
 }
 
-// PW View
-function renderPWView() {
+// Vue alternative : Planeswalkers ou Terrains (même layout, source de données différente)
+function altFlat(identityId) {
+  return currentView === 'pw' ? buildPWFlatArray(identityId) : ((landsDB || {})[identityId] || []);
+}
+function renderAltView() {
+  const isPW = currentView === 'pw';
   const _sidebarEl = document.getElementById('identity-list');
   const _savedScroll = _sidebarEl ? _sidebarEl.scrollTop : 0;
 
-  if (!currentPWIdentity) currentPWIdentity = ALL_IDENTITIES[0];
-  const flat     = buildPWFlatArray(currentPWIdentity.id);
+  if (isPW  && !currentPWIdentity)   currentPWIdentity   = ALL_IDENTITIES[0];
+  if (!isPW && !currentLandIdentity) currentLandIdentity = ALL_IDENTITIES[0];
+  const curIdentity = isPW ? currentPWIdentity : currentLandIdentity;
+  const flat       = altFlat(curIdentity.id);
   const totalPages = Math.max(1, Math.ceil(flat.length / PAGE_SIZE));
   if (currentPage >= totalPages) currentPage = 0;
 
-  const ownedTotal = owned.size;
   const ownedHere  = flat.filter(c => owned.has(c.oracle_id)).length;
-  let pwCreaPos=0,pwCreaTotal=0,pwPWPos=0,pwPWTotal=0,pwTokPos=0,pwTokTotal=0;
-  for (const key of Object.keys(cardDB||{})) {
-    for (const c of cardDB[key]) { pwCreaTotal++; if(owned.has(c.oracle_id)) pwCreaPos++; }
-  }
-  for (const key of Object.keys(pwDB||{})) {
-    for (const pw of pwDB[key]) {
-      pwPWTotal++; if(owned.has(pw.oracle_id)) pwPWPos++;
-      for (const t of pw._tokens||[]) { pwTokTotal++; if(owned.has(t.oracle_id)) pwTokPos++; }
-    }
-  }
   const progressPct = flat.length > 0 ? Math.round(ownedHere / flat.length * 100) : 0;
 
-  // Sidebar — identity buttons for PW
+  // Sidebar — identity buttons
   let sidebarGroups = '';
   for (let g = 0; g <= 5; g++) {
     let btns = '';
     for (const identity of ALL_IDENTITIES.filter(i => i.group === g)) {
-      const idFlat = buildPWFlatArray(identity.id);
+      const idFlat = altFlat(identity.id);
       const idOwned = idFlat.filter(c => owned.has(c.oracle_id)).length;
       const pct = idFlat.length > 0 ? (idOwned / idFlat.length * 100).toFixed(1) : 0;
-      const active = currentPWIdentity.id === identity.id;
+      const active = curIdentity.id === identity.id;
       btns += `<button class="identity-btn pw-id-btn ${active?'active':''}" data-id="${identity.id}">
         <div class="progress-fill" style="width:${pct}%"></div>
         <span class="pips">${pipsHtml(identity.colors,13)}</span>
@@ -877,17 +937,11 @@ function renderPWView() {
       <div id="sidebar-header">
         <div class="title">✦ LÉGENDAIRES</div>
         <div class="subtitle" style="font-size:9px;line-height:1.7">
-          ✦ ${pwCreaPos}/${pwCreaTotal}
-          &nbsp;★ ${pwPWPos}/${pwPWTotal}
-          &nbsp;◆ ${pwTokPos}/${pwTokTotal}
+          ${countsHtml()}
         </div>
       </div>
       <div id="identity-list">
-        <div style="padding:0 6px 8px;border-bottom:1px solid #1e1e1e;margin-bottom:8px;display:flex;flex-direction:column;gap:3px">
-          <button class="search-tab" id="btn-goto-search">&#128269; Recherche</button>
-          <button class="pw-tab active" id="btn-goto-pw">★ Planeswalkers</button>
-          <button class="action-btn secondary" id="btn-goto-creatures" style="font-size:10px;padding:4px 6px">✦ Créatures</button>
-        </div>
+        ${viewTabsHtml()}
         ${sidebarGroups}
       </div>
       <div id="sidebar-actions">
@@ -900,8 +954,8 @@ function renderPWView() {
     <div id="main">
       <div id="main-header">
         <span style="display:flex;align-items:center;gap:6px">
-          ${pipsHtml(currentPWIdentity.colors, 20)}
-          <span class="identity-name">★ ${currentPWIdentity.label}</span>
+          ${pipsHtml(curIdentity.colors, 20)}
+          <span class="identity-name">${isPW ? '★' : '⛰'} ${curIdentity.label}</span>
         </span>
         <div class="divider"></div>
         <span class="count-label">${ownedHere} / ${flat.length} possédée${ownedHere!==1?'s':''}</span>
@@ -932,7 +986,8 @@ function renderPWView() {
   // Wire events
   document.querySelectorAll('.pw-id-btn').forEach(btn => {
     btn.addEventListener('click', () => {
-      currentPWIdentity = findCategory(btn.dataset.id);
+      if (isPW) currentPWIdentity   = findCategory(btn.dataset.id);
+      else      currentLandIdentity = findCategory(btn.dataset.id);
       currentPage = 0;
       renderApp();
     });
@@ -949,16 +1004,11 @@ function renderPWView() {
   document.querySelectorAll('.page-dot').forEach(dot => {
     dot.addEventListener('click', () => { currentPage=parseInt(dot.dataset.page); renderApp(); });
   });
-  document.getElementById('btn-goto-search')?.addEventListener('click', () => { currentView='search'; renderApp(); });
-  document.getElementById('btn-goto-pw')?.addEventListener('click',     () => { currentView = currentView==='pw' ? 'binder' : 'pw'; renderApp();
-  document.getElementById('btn-goto-creatures')?.addEventListener('click', () => { currentView='binder'; currentPage=0; renderApp(); }); });
+  bindViewTabs();
   document.getElementById('btn-export')?.addEventListener('click', () => { downloadJSON({version:1,owned:[...owned]},'mtg_collection.json'); });
   document.getElementById('btn-export-missing')?.addEventListener('click', exportMissing);
   document.getElementById('btn-import-col')?.addEventListener('click', () => { document.getElementById('col-file-input').click(); });
-  document.getElementById('btn-reset-db')?.addEventListener('click', () => {
-    if (!confirm('Supprimer la base de données ?')) return;
-    localStorage.removeItem(LS_DB); localStorage.removeItem(LS_DB+'_pw'); cardDB=null; pwDB=null; renderImportScreen();
-  });
+  document.getElementById('btn-reset-db')?.addEventListener('click', resetDB);
 
   requestAnimationFrame(() => {
     const _ns = document.getElementById('identity-list');
@@ -974,6 +1024,9 @@ function renderSearchResults() {
   for (const key of Object.keys(cardDB||{}))
     for (const card of cardDB[key])
       if (!seen.has(card.oracle_id)) { seen.add(card.oracle_id); all.push(card); }
+  for (const key of Object.keys(landsDB||{}))
+    for (const card of landsDB[key])
+      if (!seen.has(card.oracle_id)) { seen.add(card.oracle_id); all.push(card); }
   all.sort((a,b)=>a.name.localeCompare(b.name));
   const q = searchQuery.trim().toLowerCase();
   if (q.length < 2) { list.innerHTML='<div id="search-none">Tape au moins 2 lettres\u2026</div>'; return; }
@@ -988,6 +1041,13 @@ function renderSearchResults() {
         const cat = findCategory(key);
         const label = cat.label || key;
         posIndex[card.oracle_id] = { label, page: Math.floor(idx / PAGE_SIZE) + 1 };
+      }
+    });
+  }
+  for (const key of Object.keys(landsDB||{})) {
+    landsDB[key].forEach((card, idx) => {
+      if (!posIndex[card.oracle_id]) {
+        posIndex[card.oracle_id] = { label: '⛰ ' + (findCategory(key).label || key), page: Math.floor(idx / PAGE_SIZE) + 1 };
       }
     });
   }
@@ -1043,8 +1103,9 @@ document.getElementById('col-file-input').addEventListener('change',e=>{
 // Keyboard
 document.addEventListener('keydown',e=>{
   if (!cardDB || currentView==='search') return;
-  if (currentView === 'pw') {
-    const flat = buildPWFlatArray(currentPWIdentity?.id || 'C');
+  if (currentView === 'pw' || currentView === 'lands') {
+    const curId = (currentView==='pw' ? currentPWIdentity : currentLandIdentity)?.id || 'C';
+    const flat = altFlat(curId);
     const tp = Math.max(1, Math.ceil(flat.length/PAGE_SIZE));
     if(e.key==='ArrowLeft'&&currentPage>0){currentPage--;renderApp();}
     if(e.key==='ArrowRight'&&currentPage<tp-1){currentPage++;renderApp();}
@@ -1097,30 +1158,15 @@ function exportMissing() {
   alert(msg);
 }
 
-// Mobile action bar — wired once at boot
-document.getElementById('mob-export')?.addEventListener('click', () => {
-  downloadJSON({ version:1, owned:[...owned] }, 'mtg_collection.json');
-});
-document.getElementById('mob-missing')?.addEventListener('click', exportMissing);
-// Reset DB immediately when label is tapped (before file picker opens)
-const _mobDbLabel = document.querySelector('label[for="mob-db-file-input"]');
-if (_mobDbLabel) {
-  ['touchstart', 'mousedown'].forEach(evt => {
-    _mobDbLabel.addEventListener(evt, () => {
-      localStorage.removeItem(LS_DB); localStorage.removeItem(LS_DB+'_pw');
-      cardDB = null; pwDB = null;
-    }, { passive: true });
+// Mobile action bar — ⚠ le HTML #mobile-actions est APRÈS le <script> :
+// il faut attendre DOMContentLoaded, sinon les getElementById renvoient null
+// et les boutons ne sont jamais câblés (bug historique des boutons mobiles morts).
+document.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('mob-export')?.addEventListener('click', () => {
+    downloadJSON({ version:1, owned:[...owned] }, 'mtg_collection.json');
   });
-}
-
-document.getElementById('mob-db-file-input')?.addEventListener('change', e => {
-  const file = e.target.files[0];
-  if (!file) {
-    // No file chosen — reload from Git on next boot (localStorage already cleared)
-    return;
-  }
-  handleDBFile(file);
-  e.target.value = '';
+  document.getElementById('mob-missing')?.addEventListener('click', exportMissing);
+  document.getElementById('mob-reset')?.addEventListener('click', resetDB);
 });
 
 // Boot
@@ -1144,7 +1190,7 @@ if (cardDB) {
   <button class="mob-btn primary" id="mob-export">↓ Exporter</button>
   <label for="col-file-input-mob" class="mob-btn" style="display:flex;align-items:center;justify-content:center;cursor:pointer">↑ Importer</label>
   <button class="mob-btn" id="mob-missing">↓ Manquantes</button>
-  <label for="mob-db-file-input" class="mob-btn danger" style="display:flex;align-items:center;justify-content:center;cursor:pointer">↺ Base</label>
+  <button class="mob-btn danger" id="mob-reset">↺ Base</button>
 </div>
 
 </body>
