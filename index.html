@@ -258,7 +258,7 @@
 </head>
 <body>
 <div id="app"></div>
-<input type="file" id="db-file-input" accept=".json" style="display:none">
+<input type="file" id="db-file-input" accept=".json,.jsonl" style="display:none">
 <input type="file" id="col-file-input" accept=".json" style="display:none">
 <input type="file" id="col-file-input-mob" accept=".json" style="display:none">
 
@@ -645,8 +645,16 @@ function handleDBFile(file) {
   const reader = new FileReader();
   reader.onload = e => {
     try {
-      const raw = JSON.parse(e.target.result);
-      const arr = Array.isArray(raw) ? raw : (raw.data ?? []);
+      let arr;
+      try {
+        const raw = JSON.parse(e.target.result);
+        arr = Array.isArray(raw) ? raw : (raw.data ?? []);
+      } catch(_) {
+        // Nouveau format bulk Scryfall (.jsonl) : un objet JSON par ligne
+        arr = e.target.result.split('\n')
+          .map(l => l.trim()).filter(l => l.startsWith('{'))
+          .map(l => JSON.parse(l.endsWith(',') ? l.slice(0, -1) : l));
+      }
       if (!arr.length) throw new Error('Fichier vide ou format inattendu.');
       cardDB = buildCardDB(arr); saveDB(); renderApp();
     } catch(err) {
