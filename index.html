@@ -266,8 +266,14 @@
 const ACCENT    = '#c89b3c';
 const PAGE_SIZE = 9;
 const LS_OWNED  = 'mtg_owned_v6';
-// v7 : format allégé + terrains — invalide les caches v6 pour forcer le re-fetch du nouveau legendaries.json
-const LS_DB     = 'mtg_carddb_v7';
+// Bumper cette version à chaque changement de format OU de contenu de legendaries.json :
+// ça invalide le cache localStorage et force le re-fetch sur tous les appareils.
+// v7 : format allégé + terrains · v8 : fix meld (Brisela/Ragnarok exclus)
+const LS_DB     = 'mtg_carddb_v8';
+// Purger les caches des versions précédentes (sinon ils s'accumulent vers le quota localStorage)
+for (const old of ['mtg_carddb_v6', 'mtg_carddb_v7'])
+  for (const suffix of ['', '_pw', '_lands'])
+    try { localStorage.removeItem(old + suffix); } catch(e) {}
 
 const ALL_IDENTITIES = [
   { id:'C',     label:'Incolore',   colors:[],                    group:0 },
