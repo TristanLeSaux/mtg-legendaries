@@ -364,11 +364,15 @@ function isTournamentLegal(card) {
   if (['planar','scheme','vanguard','token','emblem','dungeon'].includes(card.layout||'')) return false;
   if ((card.set_type||'') === 'funny') return false;
   if ((card.security_stamp||'') === 'acorn') return false;
-  // Exclude meld results — vérif précise via all_parts d'abord. L'heuristique
-  // mana_cost ne s'applique qu'en secours : les PIÈCES de meld sans coût
-  // (ex: Hanweir Battlements, un terrain) ne sont pas des résultats.
-  if (card.all_parts?.some(p => p.component === 'meld_result' && p.id === card.id)) return false;
-  if (card.layout === 'meld' && !card.all_parts && (card.mana_cost === '' || card.mana_cost == null)) return false;
+  // Exclude meld results — repérage par NOM dans all_parts : les réimpressions
+  // référencent les ids d'une AUTRE impression, un test par id les rate
+  // (ex: Brisela SLD, Ragnarok FIN). Heuristique mana_cost en dernier recours,
+  // sinon les PIÈCES sans coût (ex: Hanweir Battlements, un terrain) seraient jetées.
+  if (card.layout === 'meld') {
+    const self = card.all_parts?.find(p => p.name === card.name);
+    if (self) { if (self.component === 'meld_result') return false; }
+    else if (card.mana_cost === '' || card.mana_cost == null) return false;
+  }
   return true;
 }
 function isAnyFormatLegal(card) {
